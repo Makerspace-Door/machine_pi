@@ -22,9 +22,11 @@
 Usage:
     mdnfc_tool
     mdnfc_tool (-l|--list)
+    mdnfc_tool (-t|--test)
 
 Options:
     -l --list   List tags and contents
+    -t --test   Tests
 """
 
 import sys
@@ -38,19 +40,28 @@ if __name__ == '__main__':
 
     args = docopt(__doc__)
 
+    mdnfc.init()
+
     if args["--list"]:
-
-        mdnfc.init()
-
         tags = mdnfc.list_tags()
-        print(tags)
         for t in tags:
             uid = t["uid"]
-            print("connecting to tag", uid)
+            print("tag", uid)
             mdnfc.connect(uid)
             aids = mdnfc.get_appids()
-            print(aids)
+            print(" apps: " + " ".join([str(aid) for aid in aids]))
             mdnfc.disconnect(t)
 
-        mdnfc.deinit()
+    elif args["--test"]:
+        tags = mdnfc.list_tags()
+        for t in tags:
+            uid = t["uid"]
+            print("tag", uid)
+            mdnfc.connect(uid)
+            mdnfc.app_select(0)
+            key = bytes.fromhex("0000000000000000")
+            mdnfc.auth_insecure(0, key)
+            mdnfc.disconnect(t)
+
+    mdnfc.deinit()
 

@@ -24,6 +24,7 @@
 #include <nfc/nfc.h>
 #include <freefare.h>
 
+#define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
 
@@ -154,7 +155,7 @@ error:
 
 static PyObject* mdnfc_connect(PyObject* self, PyObject* args)
 {
-	const char* targetUid;
+	const char* targetUid = 0;
 	PyArg_ParseTuple(args, "s", &targetUid);
 
 	MifareTag* tags = freefare_get_tags(device);
@@ -236,6 +237,74 @@ static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
 	return list;
 }
 
+static PyObject* auth(PyObject* self, PyObject* args, bool aes)
+{
+	int res;
+	MifareDESFireKey key;
+	uint8_t keyno;
+	const uint8_t* buf;
+	uint8_t bufw[16];
+	Py_ssize_t bufLen;
+	ssize_t reqLen;
+	PyArg_ParseTuple(args, "By#", &keyno, &buf, &bufLen);
+	if(aes) reqLen = 16; else reqLen = 8;
+	
+	if(bufLen != reqLen)
+	{
+		PyErr_Format(PyExc_IOError, "invalid key length");
+		return 0;
+	}
+	memcpy(bufw, buf, reqLen);
+	if(aes)
+		key = mifare_desfire_aes_key_new(bufw);
+	else
+		key = mifare_desfire_des_key_new(bufw);
+	res = mifare_desfire_authenticate(tag, keyno, key);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: authentication failed");
+		goto error;
+	}
+
+	mifare_desfire_key_free(key);
+	return Py_BuildValue("i", 0);
+
+error:
+	mifare_desfire_key_free(key);
+	return 0;
+}
+
+static PyObject* mdnfc_auth_insecure(PyObject* self, PyObject* args)
+{
+	return auth(self, args, false);
+}
+
+static PyObject* mdnfc_auth_secure(PyObject* self, PyObject* args)
+{
+	return auth(self, args, true);
+}
+
+static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+
+	int res;
+	uint32_t aidnum = 0;
+	PyArg_ParseTuple(args, "i", &aidnum);
+	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
+	res = mifare_desfire_select_application(tag, aid);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: select app failed");
+		return 0;
+	}
+	return Py_BuildValue("i", 0);
+}
+
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},
@@ -243,6 +312,9 @@ static PyMethodDef module_methods[] = {
 	{"connect", &mdnfc_connect, METH_VARARGS, "connect to tag"},
 	{"disconnect", &mdnfc_disconnect, METH_VARARGS, "disconnect from tag"},
 	{"get_appids", &mdnfc_get_appids, METH_VARARGS, "get application ids"},
+	{"auth_insecure", &mdnfc_auth_insecure, METH_VARARGS, "authenticate with DES"},
+	{"auth_secure", &mdnfc_auth_secure, METH_VARARGS, "authenticate with AES"},
+	{"app_select", &mdnfc_app_select, METH_VARARGS, "select application"},
 	{NULL, NULL, 0, NULL}
 };
 

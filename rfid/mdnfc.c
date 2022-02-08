@@ -98,15 +98,15 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 		res = mifare_desfire_connect(tags[i]);
 		if(res < 0)
 		{
-			printf("NFC: warning, can't connect to tag with uid %s\n", uid);
-			break;
+			PyErr_Format(PyExc_IOError, "NFC: warning, can't connect to tag with uid %s\n", uid);
+			goto error;
 		}
 
 		res = mifare_desfire_get_version(tags[i], &info);
 		if(res < 0)
 		{
-			printf("NFC: warning, can't get version for tag with uid %s\n", uid);
-			break;
+			PyErr_Format(PyExc_IOError, "NFC: warning, can't get version for tag with uid %s\n", uid);
+			goto error;
 		}
 
 		PyObject* dict = Py_BuildValue(
@@ -140,6 +140,11 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 
 	freefare_free_tags(tags);
 	return list;
+
+error:
+	freefare_free_tags(tags);
+	Py_XDECREF(list);
+	return 0;
 }
 
 

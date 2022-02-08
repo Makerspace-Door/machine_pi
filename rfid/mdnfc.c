@@ -29,6 +29,8 @@
 
 nfc_device* device = 0;
 nfc_context* context = 0;
+MifareTag tag = 0;
+MifareTag* tagList = 0;
 
 static PyObject* mdnfc_init(PyObject* self, PyObject* args)
 {
@@ -63,7 +65,7 @@ static PyObject* mdnfc_init(PyObject* self, PyObject* args)
 		break;
 	}
 	
-	return Py_BuildValue("i", devFound);
+	return Py_BuildValue("i", !devFound);
 }
 
 static PyObject* mdnfc_deinit(PyObject* self, PyObject* args)
@@ -72,7 +74,7 @@ static PyObject* mdnfc_deinit(PyObject* self, PyObject* args)
 		nfc_close(device);
 	if(context)
 	    nfc_exit(context);
-   	return Py_BuildValue("i", 1);
+   	return Py_BuildValue("i", 0);
 }
 
 static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
@@ -136,6 +138,9 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 
 		PyList_Append(list, dict);
 		Py_XDECREF(dict);
+
+		mifare_desfire_disconnect(tags[i]);
+		free(uid);
 	}
 
 	freefare_free_tags(tags);
@@ -147,11 +152,97 @@ error:
 	return 0;
 }
 
+static PyObject* mdnfc_connect(PyObject* self, PyObject* args)
+{
+	const char* targetUid;
+	PyArg_ParseTuple(args, "s", &targetUid);
+
+	MifareTag* tags = freefare_get_tags(device);
+	if(!tags)
+	{
+		PyErr_SetString(PyExc_IOError, "NFC: no tags found");
+		return 0;
+	}
+
+	for(int i = 0; tags[i]; i++)
+	{
+		if(freefare_get_tag_type(tags[i]) != DESFIRE)
+			continue;
+		
+		char* uid = freefare_get_tag_uid(tags[i]);
+		int cmp = strcmp(uid, targetUid);
+		free(uid);
+		if(cmp != 0)
+			continue;
+
+		int res;
+		res = mifare_desfire_connect(tags[i]);
+		if(res < 0)
+		{
+			PyErr_Format(PyExc_IOError, "NFC: warning, can't connect to tag with uid %s\n", targetUid);
+			goto error;
+		}
+
+		tag = tags[i];
+		tagList = tags;
+
+		return Py_BuildValue("i", 0);
+	}
+
+	PyErr_Format(PyExc_IOError, "NFC: tag not found");
+
+error:
+	freefare_free_tags(tags);
+	return 0;
+}
+
+static PyObject* mdnfc_disconnect(PyObject* self, PyObject* args)
+{
+	if(tag)
+	{
+		mifare_desfire_disconnect(tag);
+		freefare_free_tags(tagList);
+		tag = 0;
+		tagList = 0;
+	}
+	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+	MifareDESFireAID* aids;
+	size_t aids_count;
+	int res = 0;
+	res = mifare_desfire_get_application_ids(tag, &aids, &aids_count);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: get app ids failed");
+		return 0;
+	}
+
+	PyObject* list = PyList_New(aids_count);
+	for(size_t i = 0; i < aids_count; i++)
+	{
+		uint32_t aid = mifare_desfire_aid_get_aid(aids[i]);
+		PyList_SetItem(list, i, Py_BuildValue("i", aid));
+	}
+
+	mifare_desfire_free_application_ids(aids);
+	return list;
+}
 
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},
 	{"list_tags", &mdnfc_list_tags, METH_VARARGS, "list tags"},
+	{"connect", &mdnfc_connect, METH_VARARGS, "connect to tag"},
+	{"disconnect", &mdnfc_disconnect, METH_VARARGS, "disconnect from tag"},
+	{"get_appids", &mdnfc_get_appids, METH_VARARGS, "get application ids"},
 	{NULL, NULL, 0, NULL}
 };
 

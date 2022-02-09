@@ -22,11 +22,13 @@
 Usage:
     mdnfc_tool
     mdnfc_tool (-l|--list)
-    mdnfc_tool (-t|--test)
+    mdnfc_tool (--test1)
+    mdnfc_tool (--test2)
 
 Options:
     -l --list   List tags and contents
-    -t --test   Tests
+    --test1   Test 1
+    --test2   Test 2
 """
 
 import sys
@@ -52,15 +54,33 @@ if __name__ == '__main__':
             print(" apps: " + " ".join([str(aid) for aid in aids]))
             mdnfc.disconnect(t)
 
-    elif args["--test"]:
+    elif args["--test1"]:
         tags = mdnfc.list_tags()
         for t in tags:
             uid = t["uid"]
             print("tag", uid)
             mdnfc.connect(uid)
+            
             mdnfc.app_select(0)
-            key = bytes.fromhex("0000000000000000")
-            mdnfc.auth_insecure(0, key)
+            oldkey = bytes.fromhex("0000000000000000")
+            mdnfc.auth_insecure(0, oldkey)
+
+            newkey = bytes.fromhex("00000000000000000000000000000001")
+            mdnfc.change_key(0, oldkey, newkey)
+
+            mdnfc.disconnect(t)
+
+    elif args["--test2"]:
+        tags = mdnfc.list_tags()
+        for t in tags:
+            uid = t["uid"]
+            print("tag", uid)
+            mdnfc.connect(uid)
+            
+            mdnfc.app_select(0)
+            newkey = bytes.fromhex("00000000000000000000000000000001")
+            mdnfc.auth_secure(0, newkey)
+
             mdnfc.disconnect(t)
 
     mdnfc.deinit()

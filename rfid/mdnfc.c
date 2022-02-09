@@ -239,6 +239,12 @@ static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
 
 static PyObject* auth(PyObject* self, PyObject* args, bool aes)
 {
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+	
 	int res;
 	MifareDESFireKey key;
 	uint8_t keyno;
@@ -284,6 +290,97 @@ static PyObject* mdnfc_auth_secure(PyObject* self, PyObject* args)
 	return auth(self, args, true);
 }
 
+static PyObject* mdnfc_get_keysettings(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+
+	int res;
+	uint8_t settings, max_keys;
+	res = mifare_desfire_get_key_settings(tag, &settings, &max_keys);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: get key settings failed");
+		return 0;		
+	}
+	return Py_BuildValue("BB", settings, max_keys);
+}
+
+static PyObject* mdnfc_set_keysettings(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+	
+	int res;
+	uint8_t settings = 0;
+	PyArg_ParseTuple(args, "B", &settings);
+	res = mifare_desfire_change_key_settings(tag, settings);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: change key settings failed");
+		return 0;		
+	}
+	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+	
+	int res;
+	MifareDESFireKey oldkey;
+	MifareDESFireKey newkey;
+	uint8_t keyno;
+	const uint8_t* oldbuf;
+	const uint8_t* newbuf;
+	uint8_t oldbufw[16];
+	uint8_t newbufw[16];
+	Py_ssize_t oldbufLen;
+	Py_ssize_t newbufLen;
+	PyArg_ParseTuple(args, "By#y#", &keyno, &oldbuf, &oldbufLen, 
+		&newbuf, &newbufLen);
+	printf("%ld %ld\n", oldbufLen, newbufLen);
+	
+	if((newbufLen != 16) || ((oldbufLen != 8) && (oldbufLen != 16)))
+	{
+		PyErr_Format(PyExc_IOError, "NFC: change key - invalid key length");
+		return 0;
+	}
+	memcpy(oldbufw, oldbuf, oldbufLen);
+	memcpy(newbufw, newbuf, newbufLen);
+	if(oldbufLen == 8)
+		oldkey = mifare_desfire_des_key_new(oldbufw);
+	else
+		oldkey = mifare_desfire_aes_key_new(oldbufw);
+	newkey = mifare_desfire_aes_key_new(newbufw);
+
+	res = mifare_desfire_change_key(tag, keyno, newkey, oldkey);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: change key failed");
+		goto error;
+	}
+
+	mifare_desfire_key_free(oldkey);
+	mifare_desfire_key_free(newkey);
+	return Py_BuildValue("i", 0);
+
+error:
+	mifare_desfire_key_free(oldkey);
+	mifare_desfire_key_free(newkey);
+	return 0;
+}
+
 static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 {
 	if(!tag)
@@ -314,6 +411,9 @@ static PyMethodDef module_methods[] = {
 	{"get_appids", &mdnfc_get_appids, METH_VARARGS, "get application ids"},
 	{"auth_insecure", &mdnfc_auth_insecure, METH_VARARGS, "authenticate with DES"},
 	{"auth_secure", &mdnfc_auth_secure, METH_VARARGS, "authenticate with AES"},
+	{"get_keysettings", &mdnfc_get_keysettings, METH_VARARGS, "retrieve key settings"},
+	{"set_keysettings", &mdnfc_set_keysettings, METH_VARARGS, "change key settings"},
+	{"change_key", &mdnfc_change_key, METH_VARARGS, "change key"},
 	{"app_select", &mdnfc_app_select, METH_VARARGS, "select application"},
 	{NULL, NULL, 0, NULL}
 };

@@ -22,6 +22,7 @@
 Usage:
     mdnfc_tool
     mdnfc_tool (-l|--list)
+    mdnfc_tool (-f|--format)
     mdnfc_tool (--test1)
     mdnfc_tool (--test2)
 
@@ -38,6 +39,44 @@ import time
 from docopt import docopt
 
 
+class AnyTag:
+    def __enter__(self):
+        mdnfc.init()
+        tags = mdnfc.list_tags()
+        first = True
+        for t in tags:
+            print("tag", t["uid"], "*" if first else "")
+            first = False
+        if len(tags) < 1:
+            raise Exception("no tag found")
+        self.tag = tags[0]
+        self.uid = self.tag["uid"]
+        mdnfc.connect(self.uid)
+    def __exit__(self, type, value, traceback):
+        mdnfc.disconnect(self.uid)
+
+class Auth:
+    def __init__(self, keyid, key):
+        self.keyid = keyid
+        self.key = bytes.fromhex(key)
+    def __enter__(self):
+        if len(self.key) == 8:
+            mdnfc.auth_insecure(self.keyid, self.key)
+        elif len(self.key) == 16:
+            mdnfc.auth_secure(self.keyid, self.key)
+        else:
+            raise Exception("invalid key length")
+    def __exit__(self, type, value, traceback):
+        pass
+
+class App:
+    def __init__(self, aid):
+        self.aid = aid
+    def __enter__(self):
+        mdnfc.app_select(0)
+    def __exit__(self, type, value, traceback):
+        pass
+
 if __name__ == '__main__':
 
     args = docopt(__doc__)
@@ -45,43 +84,28 @@ if __name__ == '__main__':
     mdnfc.init()
 
     if args["--list"]:
-        tags = mdnfc.list_tags()
-        for t in tags:
-            uid = t["uid"]
-            print("tag", uid)
-            mdnfc.connect(uid)
+        with AnyTag():
+            # query apps
             aids = mdnfc.get_appids()
             print(" apps: " + " ".join([str(aid) for aid in aids]))
-            mdnfc.disconnect(t)
+            # query key
+            s,n = mdnfc.get_keysettings()
+            print(" keysettings:", s, n)
+
+    elif args["--format"]:
+        with AnyTag():
+            mdnfc.format()
 
     elif args["--test1"]:
-        tags = mdnfc.list_tags()
-        for t in tags:
-            uid = t["uid"]
-            print("tag", uid)
-            mdnfc.connect(uid)
-            
-            mdnfc.app_select(0)
-            oldkey = bytes.fromhex("0000000000000000")
-            mdnfc.auth_insecure(0, oldkey)
-
-            newkey = bytes.fromhex("00000000000000000000000000000001")
-            mdnfc.change_key(0, oldkey, newkey)
-
-            mdnfc.disconnect(t)
+        with AnyTag(), App(0):
+            with Auth(0, "0000000000000000"):
+                newkey = bytes.fromhex("00000000000000000000000000000001")
+                mdnfc.change_key(0, oldkey, newkey)
 
     elif args["--test2"]:
-        tags = mdnfc.list_tags()
-        for t in tags:
-            uid = t["uid"]
-            print("tag", uid)
-            mdnfc.connect(uid)
-            
-            mdnfc.app_select(0)
-            newkey = bytes.fromhex("00000000000000000000000000000001")
-            mdnfc.auth_secure(0, newkey)
-
-            mdnfc.disconnect(t)
+        with AnyTag(), App(0):
+            with Auth(0, "00000000000000000000000000000001"):
+                pass
 
     mdnfc.deinit()
 

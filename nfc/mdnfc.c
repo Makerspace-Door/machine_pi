@@ -16,7 +16,6 @@
 	along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
-
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -381,6 +380,24 @@ error:
 	return 0;
 }
 
+static PyObject* mdnfc_format(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
+
+	int res;
+	res = mifare_desfire_format_picc(tag);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: format PICC failed");
+		return 0;		
+	}
+	return Py_BuildValue("i", 0);
+}
+
 static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 {
 	if(!tag)
@@ -414,6 +431,7 @@ static PyMethodDef module_methods[] = {
 	{"get_keysettings", &mdnfc_get_keysettings, METH_VARARGS, "retrieve key settings"},
 	{"set_keysettings", &mdnfc_set_keysettings, METH_VARARGS, "change key settings"},
 	{"change_key", &mdnfc_change_key, METH_VARARGS, "change key"},
+	{"format", &mdnfc_format, METH_VARARGS, "format PICC"},
 	{"app_select", &mdnfc_app_select, METH_VARARGS, "select application"},
 	{NULL, NULL, 0, NULL}
 };

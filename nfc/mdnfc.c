@@ -411,6 +411,7 @@ static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 	PyArg_ParseTuple(args, "i", &aidnum);
 	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
 	res = mifare_desfire_select_application(tag, aid);
+	free(aid);
 	if(res < 0)
 	{
 		PyErr_Format(PyExc_IOError, "NFC: select app failed");
@@ -418,7 +419,22 @@ static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 	}
 	return Py_BuildValue("i", 0);
 }
+/*
+static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
+{
+	if(!tag)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
+		return 0;
+	}
 
+	int res;
+	uint32_t aidnum = 0;
+	PyArg_ParseTuple(args, "i", &aidnum);
+	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
+	res = mifare_desfire_create_application_aes(tag, aid, 
+}
+*/
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},

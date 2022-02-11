@@ -23,21 +23,22 @@ Usage:
     mdnfc_tool
     mdnfc_tool (-l|--list)
     mdnfc_tool (-f|--format)
-    mdnfc_tool (--test1)
+    mdnfc_tool (--keyinit)
     mdnfc_tool (--test2)
 
 Options:
-    -l --list   List tags and contents
-    --test1   Test 1
-    --test2   Test 2
+    -l --list       List tags and contents
+    -f --format     Format tag PICC
+    --keyinit       Initially configure secure key
+    --test2         Test 2
 """
 
 import sys
 import mdnfc
 import time
+import json
 
 from docopt import docopt
-
 
 class AnyTag:
     def __enter__(self):
@@ -81,6 +82,9 @@ if __name__ == '__main__':
 
     args = docopt(__doc__)
 
+    with open("config.json") as f:
+        cfg = json.load(f)
+
     mdnfc.init()
 
     if args["--list"]:
@@ -93,19 +97,17 @@ if __name__ == '__main__':
             print(" keysettings:", s, n)
 
     elif args["--format"]:
-        with AnyTag():
+        with AnyTag(), Auth(0, cfg["key_picc"]):
             mdnfc.format()
 
-    elif args["--test1"]:
-        with AnyTag(), App(0):
-            with Auth(0, "0000000000000000"):
-                newkey = bytes.fromhex("00000000000000000000000000000001")
-                mdnfc.change_key(0, oldkey, newkey)
+    elif args["--keyinit"]:
+        with AnyTag(), App(0), Auth(0, cfg["key_default"]):
+            newkey = bytes.fromhex(cfg["key_picc"])
+            mdnfc.change_key(0, oldkey, newkey)
 
     elif args["--test2"]:
-        with AnyTag(), App(0):
-            with Auth(0, "00000000000000000000000000000001"):
-                pass
+        with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
+            pass
 
     mdnfc.deinit()
 

@@ -419,7 +419,7 @@ static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 	}
 	return Py_BuildValue("i", 0);
 }
-/*
+
 static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
 {
 	if(!tag)
@@ -430,11 +430,20 @@ static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
 
 	int res;
 	uint32_t aidnum = 0;
-	PyArg_ParseTuple(args, "i", &aidnum);
+	uint8_t settings = 0;
+	uint8_t keynum = 0;
+	PyArg_ParseTuple(args, "iBB", &aidnum, &settings, &keynum);
 	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
-	res = mifare_desfire_create_application_aes(tag, aid, 
+	res = mifare_desfire_create_application_aes(tag, aid, settings, keynum);
+	free(aid);
+	if(res < 0)
+	{
+		PyErr_Format(PyExc_IOError, "NFC: app create failed");
+		return 0;
+	}
+	return Py_BuildValue("i", 0);
 }
-*/
+
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},
@@ -449,6 +458,7 @@ static PyMethodDef module_methods[] = {
 	{"change_key", &mdnfc_change_key, METH_VARARGS, "change key"},
 	{"format", &mdnfc_format, METH_VARARGS, "format PICC"},
 	{"app_select", &mdnfc_app_select, METH_VARARGS, "select application"},
+	{"app_create", &mdnfc_app_create, METH_VARARGS, "create application"},
 	{NULL, NULL, 0, NULL}
 };
 

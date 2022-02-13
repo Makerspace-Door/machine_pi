@@ -48,7 +48,7 @@ class AnyTag:
         tags = mdnfc.list_tags()
         first = True
         for t in tags:
-            print("tag", t["uid"], "*" if first else "")
+            print("tag", t["type"],  t["uid"], "*" if first else "")
             first = False
         if len(tags) < 1:
             raise Exception("no tag found")

@@ -86,6 +86,7 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 			continue;
 		
 		char* uid = freefare_get_tag_uid(tags[i]);
+		const char* type = freefare_get_tag_friendly_name(tags[i]);
 		struct mifare_desfire_version_info info;
 		int res;
 
@@ -95,9 +96,10 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 		ERRXA(res < 0, "NFC: warning, can't get version for tag with uid %s\n", uid)
 
 		PyObject* dict = Py_BuildValue(
-			"{s:s,s:(BBBBB),s:B,s:B,s:B,s:B,s:B,s:B,s:B,s:B,"
+			"{s:s,s:s,s:(BBBBB),s:B,s:B,s:B,s:B,s:B,s:B,s:B,s:B,"
 			"s:B,s:B,s:B,s:B,s:B,s:B,s:B,s:B}",
 			"uid", uid,
+			"type", type,
 			"batchNumber", info.batch_number[0], info.batch_number[1],
 				info.batch_number[2], info.batch_number[3], 
 				info.batch_number[4], 
@@ -181,6 +183,15 @@ static PyObject* mdnfc_disconnect(PyObject* self, PyObject* args)
 		tagList = 0;
 	}
 	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_get_tagtype(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	const char* type = 0;
+	type = freefare_get_tag_friendly_name(tag);
+	return Py_BuildValue("s", type);
 }
 
 static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
@@ -358,6 +369,7 @@ static PyMethodDef module_methods[] = {
 	{"list_tags", &mdnfc_list_tags, METH_VARARGS, "list tags"},
 	{"connect", &mdnfc_connect, METH_VARARGS, "connect to tag"},
 	{"disconnect", &mdnfc_disconnect, METH_VARARGS, "disconnect from tag"},
+	{"get_tagtype", &mdnfc_get_tagtype, METH_VARARGS, "get tag type friendly name"},
 	{"get_appids", &mdnfc_get_appids, METH_VARARGS, "get application ids"},
 	{"auth_insecure", &mdnfc_auth_insecure, METH_VARARGS, "authenticate with DES"},
 	{"auth_secure", &mdnfc_auth_secure, METH_VARARGS, "authenticate with AES"},

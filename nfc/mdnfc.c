@@ -26,6 +26,14 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#define CHECK_TAG() \
+	if(!tag) { PyErr_Format(PyExc_IOError, "NFC: no tag connected"); return 0; }
+#define ERR(cond, msg) \
+	if((cond)) { PyErr_SetString(PyExc_IOError, msg); return 0; }
+#define ERRX(cond, msg) \
+	if((cond)) { PyErr_SetString(PyExc_IOError, msg); goto error; }
+#define ERRXA(cond, msg, arg) \
+	if((cond)) { PyErr_Format(PyExc_IOError, msg, arg); goto error; }
 
 nfc_device* device = 0;
 nfc_context* context = 0;
@@ -39,28 +47,16 @@ static PyObject* mdnfc_init(PyObject* self, PyObject* args)
 	size_t ndev;
 
 	nfc_init(&context);
-	if(!context)
-	{
-		PyErr_SetString(PyExc_IOError, "NFC: unable to init libnfc");
-		return 0;
-	}
+	ERR(!context, "NFC: unable to init libnfc")
 
 	ndev = nfc_list_devices(context, devices, devicesLen);
-	if(ndev <= 0)
-	{
-		PyErr_SetString(PyExc_IOError, "NFC: no device found");
-		return 0;
-	}
+	ERR(ndev <= 0, "NFC: no device found")
 
 	int devFound = 0;
 	for (size_t d = 0; d < ndev; d++)
 	{
 		device = nfc_open(context, devices[d]);
-		if(!device)
-		{
-			PyErr_SetString(PyExc_IOError, "NFC: nfc_open() failed");
-			return 0;
-		}
+		ERR(!device, "NFC: nfc_open() failed")
 		devFound = 1;
 		break;
 	}
@@ -80,11 +76,7 @@ static PyObject* mdnfc_deinit(PyObject* self, PyObject* args)
 static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 {
 	MifareTag* tags = freefare_get_tags(device);
-	if(!tags)
-	{
-		PyErr_SetString(PyExc_IOError, "NFC: no tags found");
-		return 0;
-	}
+	ERR(!tags, "NFC: no tags found")
 
 	PyObject* list = PyList_New(0);
 
@@ -98,18 +90,9 @@ static PyObject* mdnfc_list_tags(PyObject* self, PyObject* args)
 		int res;
 
 		res = mifare_desfire_connect(tags[i]);
-		if(res < 0)
-		{
-			PyErr_Format(PyExc_IOError, "NFC: warning, can't connect to tag with uid %s\n", uid);
-			goto error;
-		}
-
+		ERRXA(res < 0, "NFC: warning, can't connect to tag with uid %s\n", uid)
 		res = mifare_desfire_get_version(tags[i], &info);
-		if(res < 0)
-		{
-			PyErr_Format(PyExc_IOError, "NFC: warning, can't get version for tag with uid %s\n", uid);
-			goto error;
-		}
+		ERRXA(res < 0, "NFC: warning, can't get version for tag with uid %s\n", uid)
 
 		PyObject* dict = Py_BuildValue(
 			"{s:s,s:(BBBBB),s:B,s:B,s:B,s:B,s:B,s:B,s:B,s:B,"
@@ -158,11 +141,7 @@ static PyObject* mdnfc_connect(PyObject* self, PyObject* args)
 	PyArg_ParseTuple(args, "s", &targetUid);
 
 	MifareTag* tags = freefare_get_tags(device);
-	if(!tags)
-	{
-		PyErr_SetString(PyExc_IOError, "NFC: no tags found");
-		return 0;
-	}
+	ERR(!tags, "NFC: no tags found")
 
 	for(int i = 0; tags[i]; i++)
 	{
@@ -177,11 +156,7 @@ static PyObject* mdnfc_connect(PyObject* self, PyObject* args)
 
 		int res;
 		res = mifare_desfire_connect(tags[i]);
-		if(res < 0)
-		{
-			PyErr_Format(PyExc_IOError, "NFC: warning, can't connect to tag with uid %s\n", targetUid);
-			goto error;
-		}
+		ERRXA(res < 0, "NFC: warning, can't connect to tag with uid %s\n", targetUid)
 
 		tag = tags[i];
 		tagList = tags;
@@ -210,20 +185,13 @@ static PyObject* mdnfc_disconnect(PyObject* self, PyObject* args)
 
 static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
+
 	MifareDESFireAID* aids;
 	size_t aids_count;
 	int res = 0;
 	res = mifare_desfire_get_application_ids(tag, &aids, &aids_count);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: get app ids failed");
-		return 0;
-	}
+	ERR(res < 0, "NFC: get app ids failed")
 
 	PyObject* list = PyList_New(aids_count);
 	for(size_t i = 0; i < aids_count; i++)
@@ -238,38 +206,31 @@ static PyObject* mdnfc_get_appids(PyObject* self, PyObject* args)
 
 static PyObject* auth(PyObject* self, PyObject* args, bool aes)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 	
 	int res;
 	MifareDESFireKey key;
-	uint8_t keyno;
-	const uint8_t* buf;
+	uint8_t keyno = 0;
+	const uint8_t* buf = 0;
 	uint8_t bufw[16];
-	Py_ssize_t bufLen;
-	ssize_t reqLen;
+	Py_ssize_t bufLen = 0;
+	ssize_t reqLen = 0;
 	PyArg_ParseTuple(args, "By#", &keyno, &buf, &bufLen);
-	if(aes) reqLen = 16; else reqLen = 8;
-	
-	if(bufLen != reqLen)
-	{
-		PyErr_Format(PyExc_IOError, "invalid key length");
-		return 0;
-	}
+
+	if(aes)
+		reqLen = 16;
+	else
+		reqLen = 8;
+	ERR((bufLen == 0) || (bufLen != reqLen), "invalid key length")
+
 	memcpy(bufw, buf, reqLen);
 	if(aes)
 		key = mifare_desfire_aes_key_new(bufw);
 	else
 		key = mifare_desfire_des_key_new(bufw);
+
 	res = mifare_desfire_authenticate(tag, keyno, key);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: authentication failed");
-		goto error;
-	}
+	ERRX(res < 0, "NFC: authentication failed")
 
 	mifare_desfire_key_free(key);
 	return Py_BuildValue("i", 0);
@@ -291,50 +252,30 @@ static PyObject* mdnfc_auth_secure(PyObject* self, PyObject* args)
 
 static PyObject* mdnfc_get_keysettings(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 
 	int res;
 	uint8_t settings, max_keys;
 	res = mifare_desfire_get_key_settings(tag, &settings, &max_keys);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: get key settings failed");
-		return 0;		
-	}
+	ERR(res < 0, "NFC: get key settings failed")
 	return Py_BuildValue("BB", settings, max_keys);
 }
 
 static PyObject* mdnfc_set_keysettings(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 	
 	int res;
 	uint8_t settings = 0;
 	PyArg_ParseTuple(args, "B", &settings);
 	res = mifare_desfire_change_key_settings(tag, settings);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: change key settings failed");
-		return 0;		
-	}
+	ERR(res < 0, "NFC: change key settings failed")
 	return Py_BuildValue("i", 0);
 }
 
 static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 	
 	int res;
 	MifareDESFireKey oldkey;
@@ -348,13 +289,8 @@ static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
 	Py_ssize_t newbufLen;
 	PyArg_ParseTuple(args, "By#y#", &keyno, &oldbuf, &oldbufLen, 
 		&newbuf, &newbufLen);
-	//printf("%ld %ld\n", oldbufLen, newbufLen);
-	
-	if((newbufLen != 16) || ((oldbufLen != 8) && (oldbufLen != 16)))
-	{
-		PyErr_Format(PyExc_IOError, "NFC: change key - invalid key length");
-		return 0;
-	}
+	ERR((newbufLen != 16) || ((oldbufLen != 8) && (oldbufLen != 16)),
+		"NFC: change key - invalid key length")
 	memcpy(oldbufw, oldbuf, oldbufLen);
 	memcpy(newbufw, newbuf, newbufLen);
 	if(oldbufLen == 8)
@@ -364,11 +300,7 @@ static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
 	newkey = mifare_desfire_aes_key_new(newbufw);
 
 	res = mifare_desfire_change_key(tag, keyno, newkey, oldkey);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: change key failed");
-		goto error;
-	}
+	ERRX(res < 0, "NFC: change key failed")
 
 	mifare_desfire_key_free(oldkey);
 	mifare_desfire_key_free(newkey);
@@ -382,29 +314,17 @@ error:
 
 static PyObject* mdnfc_format(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 
 	int res;
 	res = mifare_desfire_format_picc(tag);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: format PICC failed");
-		return 0;		
-	}
+	ERR(res < 0, "NFC: format PICC failed")
 	return Py_BuildValue("i", 0);
 }
 
 static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 
 	int res;
 	uint32_t aidnum = 0;
@@ -412,21 +332,13 @@ static PyObject* mdnfc_app_select(PyObject* self, PyObject* args)
 	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
 	res = mifare_desfire_select_application(tag, aid);
 	free(aid);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: select app failed");
-		return 0;
-	}
+	ERR(res < 0, "NFC: select app failed")
 	return Py_BuildValue("i", 0);
 }
 
 static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
 {
-	if(!tag)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: no tag connected");
-		return 0;
-	}
+	CHECK_TAG()
 
 	int res;
 	uint32_t aidnum = 0;
@@ -436,11 +348,7 @@ static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
 	MifareDESFireAID aid = mifare_desfire_aid_new(aidnum);
 	res = mifare_desfire_create_application_aes(tag, aid, settings, keynum);
 	free(aid);
-	if(res < 0)
-	{
-		PyErr_Format(PyExc_IOError, "NFC: app create failed");
-		return 0;
-	}
+	ERR(res < 0, "NFC: app create failed")
 	return Py_BuildValue("i", 0);
 }
 

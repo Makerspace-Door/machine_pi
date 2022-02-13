@@ -131,10 +131,13 @@ if __name__ == '__main__':
     elif args["--create"]:
         aid = int(args["<appid>"])
         with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
-            mdnfc.app_create(aid, keyConf(), 1)
+            mdnfc.app_create(aid, keyConf(), 4)
             with App(aid), Auth(0, "00"*16):
-                mdnfc.set_keysettings(keyConf())
-                changeKey(0, "00"*16, cfg["key_app_master"])
+                    mdnfc.set_keysettings(keyConf())
+                    changeKey(1, "00"*16, cfg["key_app_read"])
+                    changeKey(2, "00"*16, cfg["key_app_write"])
+                    changeKey(3, "00"*16, cfg["key_app_readwrite"])
+                    changeKey(0, "00"*16, cfg["key_app_master"])
 
     elif args["--test1"]:
         with AnyTag(), App(0), Auth(0, cfg["key_picc"]):

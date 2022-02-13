@@ -348,7 +348,7 @@ static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
 	Py_ssize_t newbufLen;
 	PyArg_ParseTuple(args, "By#y#", &keyno, &oldbuf, &oldbufLen, 
 		&newbuf, &newbufLen);
-	printf("%ld %ld\n", oldbufLen, newbufLen);
+	//printf("%ld %ld\n", oldbufLen, newbufLen);
 	
 	if((newbufLen != 16) || ((oldbufLen != 8) && (oldbufLen != 16)))
 	{

@@ -20,11 +20,10 @@
 """ mdnfc_tool
 
 Usage:
-    mdnfc_tool
     mdnfc_tool (-l|--list)
     mdnfc_tool (-f|--format)
-    mdnfc_tool (--keyinit)
-    mdnfc_tool (--test2)
+    mdnfc_tool --keyinit
+    mdnfc_tool --test2
 
 Options:
     -l --list       List tags and contents
@@ -42,7 +41,6 @@ from docopt import docopt
 
 class AnyTag:
     def __enter__(self):
-        mdnfc.init()
         tags = mdnfc.list_tags()
         first = True
         for t in tags:
@@ -101,9 +99,20 @@ if __name__ == '__main__':
             mdnfc.format()
 
     elif args["--keyinit"]:
-        with AnyTag(), App(0), Auth(0, cfg["key_default"]):
-            newkey = bytes.fromhex(cfg["key_picc"])
-            mdnfc.change_key(0, oldkey, newkey)
+        with AnyTag():
+            for i in range(0,len(cfg["key_default"])):
+                key = cfg["key_default"][i]
+                try:
+                    print("trying key", i, end=" ")
+                    with App(0), Auth(0, key):
+                        print("success, keychange", end=" ")
+                        oldkey = bytes.fromhex(key)
+                        newkey = bytes.fromhex(cfg["key_picc"])
+                        mdnfc.change_key(0, oldkey, newkey)
+                        print("ok")
+                        break
+                except Exception as e:
+                    print("failed,", str(e))
 
     elif args["--test2"]:
         with AnyTag(), App(0), Auth(0, cfg["key_picc"]):

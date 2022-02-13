@@ -24,6 +24,7 @@ Usage:
     mdnfc_tool (-f|--format)
     mdnfc_tool (-c|--create) <appid>
     mdnfc_tool --keyinit
+    mdnfc_tool --test1
     mdnfc_tool --test2
 
 Options:
@@ -31,6 +32,7 @@ Options:
     -f --format     Format tag PICC
     -c --create     Create Application
     --keyinit       Initially configure secure key
+    --test1         Test 1
     --test2         Test 2
 """
 
@@ -74,7 +76,7 @@ class App:
     def __init__(self, aid):
         self.aid = aid
     def __enter__(self):
-        mdnfc.app_select(0)
+        mdnfc.app_select(self.aid)
     def __exit__(self, type, value, traceback):
         pass
 
@@ -83,6 +85,11 @@ def keyConf(editConf=True, noAuthCreate=False, noAuthList=False, editKey=True):
         ((1<<2) if noAuthCreate else 0) | \
         ((1<<1) if noAuthList else 0) | \
         ((1<<0) if editKey else 0)
+
+def changeKey(keyid, oldkey, newkey):
+    oldkey = bytes.fromhex(oldkey)
+    newkey = bytes.fromhex(newkey)
+    mdnfc.change_key(keyid, oldkey, newkey)   
 
 if __name__ == '__main__':
 
@@ -94,7 +101,7 @@ if __name__ == '__main__':
     mdnfc.init()
 
     if args["--list"]:
-        with AnyTag():
+        with AnyTag(), Auth(0, cfg["key_picc"]):
             # query apps
             aids = mdnfc.get_appids()
             print(" apps: " + " ".join([str(aid) for aid in aids]))
@@ -114,9 +121,8 @@ if __name__ == '__main__':
                     print("trying key", i, end=" ")
                     with App(0), Auth(0, key):
                         print("success, keychange", end=" ")
-                        oldkey = bytes.fromhex(key)
-                        newkey = bytes.fromhex(cfg["key_picc"])
-                        mdnfc.change_key(0, oldkey, newkey)
+                        mdnfc.set_keysettings(keyConf())
+                        changeKey(0, key, cfg["key_picc"])
                         print("ok")
                         break
                 except Exception as e:
@@ -126,9 +132,16 @@ if __name__ == '__main__':
         aid = int(args["<appid>"])
         with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
             mdnfc.app_create(aid, keyConf(), 1)
+            with App(aid), Auth(0, "00"*16):
+                mdnfc.set_keysettings(keyConf())
+                changeKey(0, "00"*16, cfg["key_app_master"])
+
+    elif args["--test1"]:
+        with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
+            pass
 
     elif args["--test2"]:
-        with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
+        with AnyTag(), App(42), Auth(0, cfg["key_app_master"]):
             pass
 
     mdnfc.deinit()

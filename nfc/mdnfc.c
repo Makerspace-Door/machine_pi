@@ -30,6 +30,8 @@
 	if(!tag) { PyErr_Format(PyExc_IOError, "NFC: no tag connected"); return 0; }
 #define ERR(cond, msg) \
 	if((cond)) { PyErr_SetString(PyExc_IOError, msg); return 0; }
+#define ERRA(cond, msg, arg) \
+	if((cond)) { PyErr_Format(PyExc_IOError, msg, arg); return 0; }
 #define ERRX(cond, msg) \
 	if((cond)) { PyErr_SetString(PyExc_IOError, msg); goto error; }
 #define ERRXA(cond, msg, arg) \
@@ -67,9 +69,15 @@ static PyObject* mdnfc_init(PyObject* self, PyObject* args)
 static PyObject* mdnfc_deinit(PyObject* self, PyObject* args)
 {
 	if(device)
+	{
 		nfc_close(device);
+		device = 0;
+	}
 	if(context)
+	{
 	    nfc_exit(context);
+		context = 0;
+	}
    	return Py_BuildValue("i", 0);
 }
 
@@ -363,6 +371,113 @@ static PyObject* mdnfc_app_create(PyObject* self, PyObject* args)
 	return Py_BuildValue("i", 0);
 }
 
+static PyObject* mdnfc_get_files(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	uint8_t* files = 0;
+	size_t count = 0;
+	int res = 0;
+	res = mifare_desfire_get_file_ids(tag, &files, &count);
+	ERR(res < 0, "NFC: get file ids failed")
+
+	PyObject* list = PyList_New(count);
+	for(size_t i = 0; i < count; i++)
+	{
+		struct mifare_desfire_file_settings s;
+		res = mifare_desfire_get_file_settings(tag, files[i], &s);
+		ERRX(res < 0, "NFC: failed to retrieve file settings")
+
+		uint32_t fs = (s.file_type == MDFT_STANDARD_DATA_FILE) ?
+			s.settings.standard_file.file_size : 0;
+		PyObject* elem = Py_BuildValue(
+			"{s:B,s:B,s:B,s:H,s:I}",
+			"id", files[i],
+			"type", s.file_type,
+			"comm", s.communication_settings,
+			"access", s.access_rights,
+			"std_size", fs
+		);
+		PyList_SetItem(list, i, elem);
+	}
+
+	free(files);
+	return list;
+
+error:
+	free(files);
+	return 0;
+}
+
+static PyObject* mdnfc_change_filesettings(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	int res;
+	uint8_t fileno = 0;
+	uint8_t comm = 0;
+	uint16_t access = 0;
+	PyArg_ParseTuple(args, "BBH", &fileno, &comm, &access);
+	res = mifare_desfire_change_file_settings(tag, fileno, comm, access);
+	ERR(res < 0, "NFC: change file settings failed")
+	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_file_create(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	int res;
+	uint8_t fileno = 0;
+	uint16_t access = 0;
+	uint32_t size = 0;
+	PyArg_ParseTuple(args, "BHI", &fileno, &access, &size);
+	printf("access: %d\n", access);
+	res = mifare_desfire_create_std_data_file(tag, fileno, 
+		MDCM_ENCIPHERED, access, size);
+	ERR(res < 0, "NFC: create file failed")
+	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_file_write(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	ssize_t nwrite;
+	uint8_t fileno = 0;
+	uint32_t offset = 0;
+	uint32_t length = 0;
+	const uint8_t* data = 0;
+	size_t data_len = 0;
+	PyArg_ParseTuple(args, "BIIy#", &fileno, &offset, &length, &data, &data_len);
+	ERR(data_len != length, "NFC: length and data size do not match")
+	nwrite = mifare_desfire_write_data(tag, fileno, offset, length, data);
+	ERRA(nwrite != length, "NFC: write file failed, %ld written", nwrite)
+	return Py_BuildValue("i", 0);
+}
+
+static PyObject* mdnfc_file_read(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+
+	ssize_t nread = 0;
+	uint8_t fileno = 0;
+	uint32_t offset = 0;
+	uint32_t length = 0;
+	uint8_t* data = 0;
+	PyArg_ParseTuple(args, "BII", &fileno, &offset, &length);
+	data = malloc(length);
+	nread = mifare_desfire_read_data(tag, fileno, offset, length, data);
+	ERRXA(nread != length, "NFC: read failed, got %ld bytes", nread)
+
+	PyObject* ret = Py_BuildValue("y#", data, length);
+	free(data);
+	return ret;
+error:
+	free(data);
+	return 0;
+}
+
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},
@@ -379,6 +494,11 @@ static PyMethodDef module_methods[] = {
 	{"format", &mdnfc_format, METH_VARARGS, "format PICC"},
 	{"app_select", &mdnfc_app_select, METH_VARARGS, "select application"},
 	{"app_create", &mdnfc_app_create, METH_VARARGS, "create application"},
+	{"get_files", &mdnfc_get_files, METH_VARARGS, "get files list"},
+	{"change_filesettings", &mdnfc_change_filesettings, METH_VARARGS, "change file settings"},
+	{"file_create", &mdnfc_file_create, METH_VARARGS, "change file settings"},
+	{"file_write", &mdnfc_file_write, METH_VARARGS, "write file"},
+	{"file_read", &mdnfc_file_read, METH_VARARGS, "read file"},
 	{NULL, NULL, 0, NULL}
 };
 

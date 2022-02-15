@@ -26,6 +26,7 @@ Usage:
     mdnfc_tool -f <appid> <fileid> <size>
     mdnfc_tool -w <appid> <fileid> <data>
     mdnfc_tool -r <appid> <fileid> <size>
+    mdnfc_tool -s <appid> <fileid> <config>
     mdnfc_tool --format
     mdnfc_tool --keyinit
     mdnfc_tool --test1
@@ -38,16 +39,18 @@ Options:
     -f, --file          Create file
     -w, --write         Write file
     -r, --read          Read file
-    --format           Format tag PICC
-    --keyinit          Initially configure secure key
-    --test1            Test 1
-    --test2            Test 2
+    -s, --settings      Change file (access) settings
+    --format            Format tag PICC
+    --keyinit           Initially configure secure key
+    --test1             Test 1
+    --test2             Test 2
 """
 
 import sys
 import mdnfc
 import time
 import json
+import traceback
 
 from docopt import docopt
 
@@ -94,11 +97,21 @@ def keyConf(editConf=True, noAuthCreate=False, noAuthList=False, editKey=True):
         ((1<<1) if noAuthList else 0) | \
         ((1<<0) if editKey else 0)
 
-MDAR_FREE = 0xE
-MDAR_DENY = 0xF
-def fileAccess(read=MDAR_DENY, write=MDAR_DENY, \
-        readWrite=MDAR_DENY, changeAccess=MDAR_DENY):
-    return (read << 12) | (write << 8) | (readWrite << 4) | changeAccess
+class FileAccess:
+    MDAR_FREE = 0xE
+    MDAR_DENY = 0xF
+
+    def __init__(self, fa=0):
+        self.fa = fa
+
+    def setup(self, read=0, write=0, readWrite=0, changeAccess=0):
+        self.fa = (read << 12) | (write << 8) \
+            | (readWrite << 4) | changeAccess
+        return self.fa
+    
+    def __str__(self):
+        return "r:" + str((self.fa>>12)&0xf) + " w:" + str((self.fa>>8)&0xf) \
+            + " rw:" + str((self.fa>>4)&0xf) + " ca:" + str(self.fa&0xf)
 
 def changeKey(keyid, oldkey, newkey):
     oldkey = bytes.fromhex(oldkey)
@@ -112,83 +125,100 @@ if __name__ == '__main__':
         cfg = json.load(f)
     mdnfc.init()
 
-    if args["--list-tags"]:
-        with AnyTag(), Auth(0, cfg["key_picc"]):
-            # query apps
-            aids = mdnfc.get_appids()
-            print(" apps: " + " ".join([str(aid) for aid in aids]))
-            # query key
-            s,n = mdnfc.get_keysettings()
-            print(" keysettings:", s, n)
+    with AnyTag():
+        try:
 
-    elif args["--format"]:
-        with AnyTag(), Auth(0, cfg["key_picc"]):
-            mdnfc.format()
+            if args["--list-tags"]:
+                with Auth(0, cfg["key_picc"]):
+                    # query apps
+                    aids = mdnfc.get_appids()
+                    print(" apps: " + " ".join([str(aid) for aid in aids]))
+                    # query key
+                    s,n = mdnfc.get_keysettings()
+                    print(" keysettings:", s, n)
 
-    elif args["--keyinit"]:
-        with AnyTag():
-            for i in range(0,len(cfg["key_default"])):
-                key = cfg["key_default"][i]
-                try:
-                    print("trying key", i, end=" ")
-                    with App(0), Auth(0, key):
-                        print("success, keychange", end=" ")
-                        mdnfc.set_keysettings(keyConf())
-                        changeKey(0, key, cfg["key_picc"])
-                        print("ok")
-                        break
-                except Exception as e:
-                    print("failed,", str(e))
+            elif args["--format"]:
+                with Auth(0, cfg["key_picc"]):
+                    mdnfc.format()
 
-    elif args["--app"]:
-        aid = int(args["<appid>"])
-        with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
-            mdnfc.app_create(aid, keyConf(), 4)
-            with App(aid), Auth(0, "00"*16):
-                    mdnfc.set_keysettings(keyConf())
-                    changeKey(1, "00"*16, cfg["key_app_read"])
-                    changeKey(2, "00"*16, cfg["key_app_write"])
-                    changeKey(3, "00"*16, cfg["key_app_readwrite"])
-                    changeKey(0, "00"*16, cfg["key_app_master"])
+            elif args["--keyinit"]:
+                for i in range(0,len(cfg["key_default"])):
+                    key = cfg["key_default"][i]
+                    try:
+                        print("trying key", i, end=" ")
+                        with App(0), Auth(0, key):
+                            print("success, keychange", end=" ")
+                            mdnfc.set_keysettings(keyConf())
+                            changeKey(0, key, cfg["key_picc"])
+                            print("ok")
+                            break
+                    except Exception as e:
+                        print("failed,", str(e))
 
-    elif args["--list-files"]:
-        aid = int(args["<appid>"])
-        with AnyTag(), App(aid), Auth(0, cfg["key_app_master"]):
-            files = mdnfc.get_files()
-            for f in files:
-                print("%d:" % f["id"], "type", f["type"], "comm", f["comm"], \
-                    "access", f["access"], "size", f["std_size"])
+            elif args["--app"]:
+                aid = int(args["<appid>"])
+                with App(0), Auth(0, cfg["key_picc"]):
+                    mdnfc.app_create(aid, keyConf(), 4)
+                    with App(aid), Auth(0, "00"*16):
+                            mdnfc.set_keysettings(keyConf())
+                            changeKey(0, "00"*16, cfg["key_app_master"])
+                    with App(aid), Auth(0, cfg["key_app_master"]):
+                            changeKey(1, "00"*16, cfg["key_app_read"])
+                            changeKey(2, "00"*16, cfg["key_app_write"])
+                            changeKey(3, "00"*16, cfg["key_app_readwrite"])
 
-    elif args["--file"]:
-        aid = int(args["<appid>"])
-        fid = int(args["<fileid>"])
-        size = int(args["<size>"])
-        with AnyTag(), App(aid), Auth(0, cfg["key_app_master"]):
-            mdnfc.file_create(fid, fileAccess(1,2,3), size)
-            #mdnfc.file_write(fid, 0, size, bytes(size))
+            elif args["--list-files"]:
+                aid = int(args["<appid>"])
+                with App(aid), Auth(0, cfg["key_app_master"]):
+                    files = mdnfc.get_files()
+                    for f in files:
+                        print("%d:" % f["id"], "type", f["type"], "comm", f["comm"], \
+                            "access", str(FileAccess(f["access"])), "size", f["std_size"])
 
-    elif args["--write"]:
-        aid = int(args["<appid>"])
-        fid = int(args["<fileid>"])
-        data = args["<data>"]
-        with AnyTag(), App(aid), Auth(2, cfg["key_app_write"]):
-            mdnfc.file_write(fid, 0, len(data), data.encode())
+            elif args["--file"]:
+                aid = int(args["<appid>"])
+                fid = int(args["<fileid>"])
+                size = int(args["<size>"])
+                fa = FileAccess()
+                with App(aid), Auth(0, cfg["key_app_master"]):
+                    mdnfc.file_create(fid, fa.setup(1,2,3,0), size)
 
-    elif args["--read"]:
-        aid = int(args["<appid>"])
-        fid = int(args["<fileid>"])
-        size = int(args["<size>"])
-        with AnyTag(), App(aid), Auth(1, cfg["key_app_read"]):
-            data = mdnfc.file_read(fid, 0, size)
-            print(len(data), "\"" + data.decode() + "\"")
+            elif args["--write"]:
+                aid = int(args["<appid>"])
+                fid = int(args["<fileid>"])
+                data = args["<data>"]
+                with App(aid), Auth(2, cfg["key_app_write"]):
+                #with App(aid), Auth(0, cfg["key_app_master"]):
+                    mdnfc.file_write(fid, 0, len(data), data.encode())
 
-    elif args["--test1"]:
-        with AnyTag(), App(0), Auth(0, cfg["key_picc"]):
-            pass
+            elif args["--read"]:
+                aid = int(args["<appid>"])
+                fid = int(args["<fileid>"])
+                size = int(args["<size>"])
+                with App(aid), Auth(1, cfg["key_app_read"]):
+                #with App(aid), Auth(0, cfg["key_app_master"]):
+                    data = mdnfc.file_read(fid, 0, size)
+                    print(len(data), "\"" + data.decode() + "\"")
 
-    elif args["--test2"]:
-        with AnyTag(), App(42), Auth(0, cfg["key_app_master"]):
-            pass
+            elif args["--settings"]:
+                aid = int(args["<appid>"])
+                fid = int(args["<fileid>"])
+                s = [int(e) for e in args["<config>"].split(",")]
+                with App(aid), Auth(0, cfg["key_app_master"]):
+                    mdnfc.change_filesettings(fid, \
+                        FileAccess().setup(s[0],s[1],s[2],s[3]))
+
+            elif args["--test1"]:
+                with App(0), Auth(0, cfg["key_picc"]):
+                    pass
+
+            elif args["--test2"]:
+                with App(42), Auth(0, cfg["key_app_master"]):
+                    pass
+
+        except OSError as e:
+            traceback.print_exc()
+            print("cause: " + mdnfc.get_strerror())
 
     mdnfc.deinit()
 

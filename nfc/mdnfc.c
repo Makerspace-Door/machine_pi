@@ -415,10 +415,10 @@ static PyObject* mdnfc_change_filesettings(PyObject* self, PyObject* args)
 
 	int res;
 	uint8_t fileno = 0;
-	uint8_t comm = 0;
 	uint16_t access = 0;
-	PyArg_ParseTuple(args, "BBH", &fileno, &comm, &access);
-	res = mifare_desfire_change_file_settings(tag, fileno, comm, access);
+	PyArg_ParseTuple(args, "BH", &fileno, &access);
+	res = mifare_desfire_change_file_settings(tag, fileno, 
+		MDCM_ENCIPHERED, access);
 	ERR(res < 0, "NFC: change file settings failed")
 	return Py_BuildValue("i", 0);
 }
@@ -432,7 +432,6 @@ static PyObject* mdnfc_file_create(PyObject* self, PyObject* args)
 	uint16_t access = 0;
 	uint32_t size = 0;
 	PyArg_ParseTuple(args, "BHI", &fileno, &access, &size);
-	printf("access: %d\n", access);
 	res = mifare_desfire_create_std_data_file(tag, fileno, 
 		MDCM_ENCIPHERED, access, size);
 	ERR(res < 0, "NFC: create file failed")
@@ -478,6 +477,13 @@ error:
 	return 0;
 }
 
+static PyObject* mdnfc_get_strerror(PyObject* self, PyObject* args)
+{
+	CHECK_TAG()
+	const char* str = freefare_strerror(tag);
+	return Py_BuildValue("s", str);
+}
+
 static PyMethodDef module_methods[] = {
 	{"init", &mdnfc_init, METH_VARARGS, "initialize nfc backend"},
 	{"deinit", &mdnfc_deinit, METH_VARARGS, "deinitialize nfc backend"},
@@ -499,6 +505,7 @@ static PyMethodDef module_methods[] = {
 	{"file_create", &mdnfc_file_create, METH_VARARGS, "change file settings"},
 	{"file_write", &mdnfc_file_write, METH_VARARGS, "write file"},
 	{"file_read", &mdnfc_file_read, METH_VARARGS, "read file"},
+	{"get_strerror", &mdnfc_get_strerror, METH_VARARGS, "get error string"},
 	{NULL, NULL, 0, NULL}
 };
 

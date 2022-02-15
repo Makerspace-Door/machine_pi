@@ -188,7 +188,6 @@ if __name__ == '__main__':
                 fid = int(args["<fileid>"])
                 data = args["<data>"]
                 with App(aid), Auth(2, cfg["key_app_write"]):
-                #with App(aid), Auth(0, cfg["key_app_master"]):
                     mdnfc.file_write(fid, 0, len(data), data.encode())
 
             elif args["--read"]:
@@ -196,7 +195,6 @@ if __name__ == '__main__':
                 fid = int(args["<fileid>"])
                 size = int(args["<size>"])
                 with App(aid), Auth(1, cfg["key_app_read"]):
-                #with App(aid), Auth(0, cfg["key_app_master"]):
                     data = mdnfc.file_read(fid, 0, size)
                     print(len(data), "\"" + data.decode() + "\"")
 

@@ -244,11 +244,16 @@ static PyObject* auth(PyObject* self, PyObject* args, bool aes)
 
 	memcpy(bufw, buf, reqLen);
 	if(aes)
+	{
 		key = mifare_desfire_aes_key_new(bufw);
+		res = mifare_desfire_authenticate_aes(tag, keyno, key);
+	}
 	else
+	{
 		key = mifare_desfire_des_key_new(bufw);
+		res = mifare_desfire_authenticate(tag, keyno, key);
+	}
 
-	res = mifare_desfire_authenticate(tag, keyno, key);
 	ERRX(res < 0, "NFC: authentication failed")
 
 	mifare_desfire_key_free(key);
@@ -316,7 +321,7 @@ static PyObject* mdnfc_change_key(PyObject* self, PyObject* args)
 		oldkey = mifare_desfire_des_key_new(oldbufw);
 	else
 		oldkey = mifare_desfire_aes_key_new(oldbufw);
-	newkey = mifare_desfire_aes_key_new(newbufw);
+	newkey = mifare_desfire_aes_key_new_with_version(newbufw, 0x42);
 
 	res = mifare_desfire_change_key(tag, keyno, newkey, oldkey);
 	ERRX(res < 0, "NFC: change key failed")
@@ -450,7 +455,7 @@ static PyObject* mdnfc_file_write(PyObject* self, PyObject* args)
 	size_t data_len = 0;
 	PyArg_ParseTuple(args, "BIIy#", &fileno, &offset, &length, &data, &data_len);
 	ERR(data_len != length, "NFC: length and data size do not match")
-	nwrite = mifare_desfire_write_data(tag, fileno, offset, length, data);
+	nwrite = mifare_desfire_write_data_ex(tag, fileno, offset, length, data, MDCM_ENCIPHERED);
 	ERRA(nwrite != length, "NFC: write file failed, %ld written", nwrite)
 	return Py_BuildValue("i", 0);
 }
@@ -466,7 +471,7 @@ static PyObject* mdnfc_file_read(PyObject* self, PyObject* args)
 	uint8_t* data = 0;
 	PyArg_ParseTuple(args, "BII", &fileno, &offset, &length);
 	data = malloc(length);
-	nread = mifare_desfire_read_data(tag, fileno, offset, length, data);
+	nread = mifare_desfire_read_data_ex(tag, fileno, offset, length, data, MDCM_ENCIPHERED);
 	ERRXA(nread != length, "NFC: read failed, got %ld bytes", nread)
 
 	PyObject* ret = Py_BuildValue("y#", data, length);
